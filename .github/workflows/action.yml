@@ -35,6 +35,7 @@ jobs:
       - name: Install Odoo dependencies
         run: |
           sudo apt-get install build-essential 
+          sudo apt install libsasl2-dev
           sudo apt install python3-ldap3
           sudo apt-get install libxml2-dev libxslt1-dev libldap2-dev
           sudo apt-get install libffi-dev libxml2-dev libxslt1-dev libldap2-dev
