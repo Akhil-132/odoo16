@@ -1,0 +1,47 @@
+name: Odoo CI/CD
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: 3.x
+
+    - name: Start PostgreSQL
+      run: |
+        docker run -d --name postgres -e POSTGRES_USER=your_db_user -e POSTGRES_PASSWORD=your_db_password -p 5432:5432 postgres
+ 
+    - name: Create PostgreSQL User and Database
+      run: |
+        docker exec postgres psql -U postgres -c "CREATE USER your_db_user WITH PASSWORD 'your_db_password';"
+        docker exec postgres psql -U postgres -c "CREATE DATABASE your_database_name OWNER your_db_user;"
+        docker exec postgres psql -U postgres -c "GRANT ALL PRIVILEGES ON DATABASE your_database_name TO your_db_user;"
+
+        
+    - name: Install Odoo dependencies
+      run: |
+        pip install -r requirements.txt
+      
+
+    - name: Run Odoo tests
+      run: |
+        odoo.py -c odoo.conf -d your_database_name -u your_module_name
+      working-directory: ./your_odoo_module_directory
+
+    - name: Deploy to Odoo server
+      run: |
+        odoo.py -c odoo.conf -d your_database_name -u your_module_name -i your_module_name
+      working-directory: ./your_odoo_module_directory
+
+
