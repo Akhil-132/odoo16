@@ -34,5 +34,6 @@ jobs:
               
       - name: Install Odoo dependencies
         run: |
+          sudo apt-get install libxml2-dev libxslt1-dev
           pip install -r requirements.txt
       
