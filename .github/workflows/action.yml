@@ -36,7 +36,7 @@ jobs:
         run: |
           sudo apt-get install build-essential
           sudo apt-get install libxml2-dev libxslt1-dev libldap2-dev
-          sudo yum install libffi-devel libxml2-devel libxslt-devel openldap-devel
+          sudo apt-get install libffi-dev libxml2-dev libxslt1-dev libldap2-dev
           pip install --no-cache-dir greenlet lxml python-ldap
           
 
