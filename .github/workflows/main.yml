@@ -26,7 +26,7 @@ jobs:
 
     - name: Create Odoo User
       run: |
-        sudo su - postgres -c "createuser --createdb odoo --postgres --no-createrole --no-superuser odoo16"
+        sudo su - postgres -c "createuser --createdb --username postgres --no-createrole --no-superuser odoo16"
       continue-on-error: true
 
     - name: Install Dependencies
@@ -36,7 +36,7 @@ jobs:
       
     - name: Initialize Odoo Database
       run: |
-        ./odoo-bin -c debian/odoo.conf -d odoo --without-demo all
+        ./odoo-bin -c debian/odoo.conf -d akhil --without-demo all
       
     - name: Start Odoo Service
       run: |
