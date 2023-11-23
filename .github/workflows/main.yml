@@ -1,0 +1,39 @@
+name: Odoo CI/CD
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.10'
+
+      - name: Install Odoo dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-pip postgresql
+          pip3 install -r requirements.txt
+
+      - name: Run Odoo tests
+        run: |
+          # Command to run tests (replace with your test command)
+          python3 odoo-bin -c your_odoo_config.conf -d your_database --test-enable --stop-after-init
+
+      - name: Deploy Odoo (example)
+        # You might have specific deployment steps here
+        run: |
+          # Your deployment commands
+          python3 deploy_script.py
