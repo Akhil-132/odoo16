@@ -29,15 +29,15 @@ jobs:
           pip install --upgrade pip wheel
           pip install -r requirements.txt
           deactivate
-
+      
       - name: Run Odoo Syntax Check
         run: |
           source odoo16-venv/bin/activate
           python odoo-bin --version  # Check if Odoo runs without issues
           deactivate
-
+  
   deploy:
-    needs: test  # Deployment happens ONLY IF test job succeeds
+    needs: test  # Ensures deployment happens ONLY IF test job succeeds
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
@@ -56,12 +56,12 @@ jobs:
             set -e  # Exit on error
             
             # Ensure Odoo User Exists
-            if ! id "odoo" &>/dev/null; then
-              sudo useradd -m -d /opt/odoo -U -r -s /bin/bash odoo
+            if ! id "odoo16" &>/dev/null; then
+              sudo useradd -m -d /opt/odoo -U -r -s /bin/bash odoo16
             fi
             sudo mkdir -p /opt/odoo
-            sudo chown -R odoo:odoo /opt/odoo
-
+            sudo chown -R odoo16:odoo16 /opt/odoo
+            
             # Install Dependencies
             sudo apt update && sudo apt install -y \
               build-essential wget git python3-pip python3-dev python3-venv python3-wheel \
@@ -70,28 +70,28 @@ jobs:
               libopenjp2-7-dev postgresql
 
             # Set up PostgreSQL User for Odoo
-            sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='odoo'" | grep -q 1 || sudo -u postgres createuser -s odoo
+            sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='odoo16'" | grep -q 1 || sudo -u postgres createuser -s odoo16
 
-            # Deploy Odoo Code as odoo user
-            sudo -u odoo bash -c '
-              if [ -d "/opt/odoo/.git" ]; then
-                echo "🚀 Pulling latest changes..."
-                git fetch --all
-                git reset --hard origin/main
-                git pull origin main
-              else
-                echo "⚠️ Directory exists but is not a git repo. Cleaning up..."
-                rm -rf /opt/odoo/*
-                git clone https://github.com/Akhil-132/odoo16.git /opt/odoo
-              fi
-            '
-
+            # Ensure Odoo Directory Exists and is a Git Repository
+            if [ ! -d "/opt/odoo/odoo16/.git" ]; then
+              echo "⚠️ Directory exists but is not a git repo or missing. Cleaning up..."
+              sudo rm -rf /opt/odoo/odoo16  # Remove old directory to prevent conflicts
+              sudo -u odoo16 mkdir -p /opt/odoo/odoo16
+              sudo -u odoo16 git clone https://github.com/Akhil-132/odoo16.git /opt/odoo/odoo16
+            else
+              echo "✅ Directory is a git repo. Pulling latest changes..."
+              sudo -u odoo16 git -C /opt/odoo/odoo16 fetch --all
+              sudo -u odoo16 git -C /opt/odoo/odoo16 reset --hard origin/main
+              sudo -u odoo16 git -C /opt/odoo/odoo16 pull origin main
+            fi
+            
             # Set Up Virtual Environment and Install Dependencies
-            sudo -u odoo bash -c '
+            sudo -u odoo16 bash -c '
+              cd /opt/odoo/odoo16
               python3 -m venv odoo16-venv
               source odoo16-venv/bin/activate
               pip install wheel
-              pip install -r /opt/odoo/requirements.txt
+              pip install -r requirements.txt
               deactivate
             '
 
@@ -101,12 +101,12 @@ jobs:
               admin_passwd = m0d1fyth15
               db_host = False
               db_port = False
-              db_user = odoo
+              db_user = odoo16
               db_password = False
-              addons_path = /opt/odoo/addons
+              addons_path = /opt/odoo/odoo16/addons
               xmlrpc_port = 8069" | sudo tee /etc/odoo16.conf > /dev/null
             fi
-
+            
             # Create and Start Odoo Service
             if [ ! -f "/etc/systemd/system/odoo16.service" ]; then
               echo "[Unit]
@@ -117,14 +117,14 @@ jobs:
               Type=simple
               SyslogIdentifier=odoo16
               PermissionsStartOnly=true
-              User=odoo
-              Group=odoo
-              ExecStart=/opt/odoo/odoo16-venv/bin/python3 /opt/odoo/odoo-bin -c /etc/odoo16.conf
+              User=odoo16
+              Group=odoo16
+              ExecStart=/opt/odoo/odoo16/odoo16-venv/bin/python3 /opt/odoo/odoo16/odoo-bin -c /etc/odoo16.conf
               StandardOutput=journal+console
               [Install]
               WantedBy=multi-user.target" | sudo tee /etc/systemd/system/odoo16.service > /dev/null
             fi
-
+            
             sudo systemctl daemon-reload
             sudo systemctl restart odoo16
             sudo systemctl enable odoo16
