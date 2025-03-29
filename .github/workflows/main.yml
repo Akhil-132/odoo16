@@ -20,9 +20,10 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt update
-          sudo apt install -y build-essential libxml2-dev libpq-dev libxslt1-dev \
-            python3-dev python3-venv python3-pip libldap2-dev libsasl2-dev libtiff5-dev \
-            libopenjp2-7-dev libjpeg-dev zlib1g-dev libfreetype6-dev libzip-dev python3-setuptools
+          sudo apt upgrade -y
+          sudo apt install git python3-pip build-essential wget python3-dev python3-venv python3-wheel \
+            libfreetype6-dev libxml2-dev libzip-dev libldap2-dev libsasl2-dev python3-setuptools node-less \
+            libjpeg-dev zlib1g-dev libpq-dev libxslt1-dev libldb-dev libldap2-dev libtirpc-dev -y
           
           python3 -m venv odoo16-venv
           source odoo16-venv/bin/activate
@@ -43,15 +44,13 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v3
 
-      - name: Set up SSH Agent
-        uses: webfactory/ssh-agent@v0.4.1
-        with:
-          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+      - name: Set up SSH Key
+        run: |
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > key.pem
+          chmod 600 key.pem
 
       - name: Deploy to Remote Server
         run: |
-          echo "$SSH_PRIVATE_KEY" > key.pem
-          chmod 600 key.pem
           ssh -o StrictHostKeyChecking=no -i key.pem ubuntu@${{ secrets.SERVER_IP }} << 'EOF'
             set -e  # Exit on error
             
@@ -63,20 +62,18 @@ jobs:
             sudo chown -R odoo16:odoo16 /opt/odoo
             
             # Install Dependencies
-            sudo apt update && sudo apt install -y \
-              build-essential wget git python3-pip python3-dev python3-venv python3-wheel \
-              libfreetype6-dev libxml2-dev libzip-dev libsasl2-dev python3-setuptools \
-              libjpeg-dev zlib1g-dev libpq-dev libxslt1-dev libldap2-dev libtiff5-dev \
-              libopenjp2-7-dev postgresql
+            sudo apt update && sudo apt upgrade -y && sudo apt install -y \
+              git python3-pip build-essential wget python3-dev python3-venv python3-wheel \
+              libfreetype6-dev libxml2-dev libzip-dev libldap2-dev libsasl2-dev python3-setuptools node-less \
+              libjpeg-dev zlib1g-dev libpq-dev libxslt1-dev libldb-dev libldap2-dev libtirpc-dev postgresql 
 
             # Set up PostgreSQL User for Odoo
-            sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='odoo16'" | grep -q 1 || sudo -u postgres createuser -s odoo16
-
+            sudo -u postgres psql -c "DO \$\$ BEGIN CREATE ROLE odoo16 WITH SUPERUSER LOGIN; EXCEPTION WHEN OTHERS THEN NULL; END \$\$;"
+            
             # Ensure Odoo Directory Exists and is a Git Repository
             if [ ! -d "/opt/odoo/odoo16/.git" ]; then
-              echo "⚠️ Directory exists but is not a git repo or missing. Cleaning up..."
-              sudo rm -rf /opt/odoo/odoo16  # Remove old directory to prevent conflicts
-              sudo -u odoo16 mkdir -p /opt/odoo/odoo16
+              echo "⚠️ Directory missing or not a git repo. Cloning..."
+              sudo rm -rf /opt/odoo/odoo16  # Remove only if it's broken
               sudo -u odoo16 git clone https://github.com/Akhil-132/odoo16.git /opt/odoo/odoo16
             else
               echo "✅ Directory is a git repo. Pulling latest changes..."
@@ -90,7 +87,7 @@ jobs:
               cd /opt/odoo/odoo16
               python3 -m venv odoo16-venv
               source odoo16-venv/bin/activate
-              pip install wheel
+              pip install --upgrade pip wheel
               pip install -r requirements.txt
               deactivate
             '
@@ -113,6 +110,7 @@ jobs:
               Description=Odoo16
               Requires=postgresql.service
               After=network.target postgresql.service
+              
               [Service]
               Type=simple
               SyslogIdentifier=odoo16
@@ -120,7 +118,9 @@ jobs:
               User=odoo16
               Group=odoo16
               ExecStart=/opt/odoo/odoo16/odoo16-venv/bin/python3 /opt/odoo/odoo16/odoo-bin -c /etc/odoo16.conf
+              Restart=always
               StandardOutput=journal+console
+              
               [Install]
               WantedBy=multi-user.target" | sudo tee /etc/systemd/system/odoo16.service > /dev/null
             fi
@@ -130,3 +130,6 @@ jobs:
             sudo systemctl enable odoo16
             echo "✅ Odoo 16 Deployment Completed!"
           EOF
+
+      - name: Clean up SSH Key
+        run: rm -f key.pem
