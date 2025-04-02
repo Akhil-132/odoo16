@@ -6,6 +6,7 @@ from collections import defaultdict
 from odoo import fields, models, api, _
 from odoo.exceptions import UserError, AccessError
 from odoo.tools.float_utils import float_compare, float_is_zero, float_round
+from odoo.tools.misc import OrderedSet
 
 
 class StockMove(models.Model):
@@ -76,7 +77,7 @@ class StockMove(models.Model):
                     move._auto_record_components(delta_qty)
                     to_set_moves -= move
                 elif float_compare(delta_qty, 0, precision_rounding=move.product_uom.rounding) < 0 and not move.picking_id.immediate_transfer:
-                    move._reduce_subcontract_order_qty(abs(delta_qty))
+                    move.with_context(transfer_qty=True)._reduce_subcontract_order_qty(abs(delta_qty))
         if to_set_moves:
             super(StockMove, to_set_moves)._quantity_done_set()
 
@@ -129,7 +130,7 @@ class StockMove(models.Model):
         subcontract order to the new quantity.
         """
         self._check_access_if_subcontractor(values)
-        if 'product_uom_qty' in values and self.env.context.get('cancel_backorder') is not False:
+        if 'product_uom_qty' in values and self.env.context.get('cancel_backorder') is not False and not self._context.get('extra_move_mode'):
             self.filtered(
                 lambda m: m.is_subcontract and m.state not in ['draft', 'cancel', 'done']
                 and float_compare(m.product_uom_qty, values['product_uom_qty'], precision_rounding=m.product_uom.rounding) != 0
@@ -196,13 +197,19 @@ class StockMove(models.Model):
         return super(StockMove, self - move_untouchable)._set_quantities_to_reservation()
 
     def _action_cancel(self):
+        productions_to_cancel_ids = OrderedSet()
         for move in self:
             if move.is_subcontract:
                 active_productions = move.move_orig_ids.production_id.filtered(lambda p: p.state not in ('done', 'cancel'))
                 moves_todo = self.env.context.get('moves_todo')
                 not_todo_productions = active_productions.filtered(lambda p: p not in moves_todo.move_orig_ids.production_id) if moves_todo else active_productions
                 if not_todo_productions:
-                    not_todo_productions.with_context(skip_activity=True).action_cancel()
+                    productions_to_cancel_ids.update(not_todo_productions.ids)
+
+        if productions_to_cancel_ids:
+            productions_to_cancel = self.env['mrp.production'].browse(productions_to_cancel_ids)
+            productions_to_cancel.with_context(skip_activity=True).action_cancel()
+
         return super()._action_cancel()
 
     def _action_confirm(self, merge=True, merge_into=False):
@@ -243,6 +250,8 @@ class StockMove(models.Model):
         view = self.env.ref('mrp_subcontracting.mrp_production_subcontracting_form_view')
         if self.env.user.has_group('base.group_portal'):
             view = self.env.ref('mrp_subcontracting.mrp_production_subcontracting_portal_form_view')
+        context = dict(self._context)
+        context.pop('skip_consumption', False)
         return {
             'name': _('Subcontract'),
             'type': 'ir.actions.act_window',
@@ -252,7 +261,7 @@ class StockMove(models.Model):
             'view_id': view.id,
             'target': 'new',
             'res_id': production.id,
-            'context': self.env.context,
+            'context': context,
         }
 
     def _get_subcontract_bom(self):
@@ -312,15 +321,27 @@ class StockMove(models.Model):
     def _reduce_subcontract_order_qty(self, quantity_to_remove):
         self.ensure_one()
         productions = self.move_orig_ids.production_id.filtered(lambda p: p.state not in ('done', 'cancel'))[::-1]
+        wip_production = productions[0] if self._context.get('transfer_qty') and len(productions) > 1 else self.env['mrp.production']
+
+        # Transfer removed qty to WIP production
+        if wip_production:
+            self.env['change.production.qty'].with_context(skip_activity=True).create({
+                'mo_id': wip_production.id,
+                'product_qty': wip_production.product_qty + quantity_to_remove
+            }).change_prod_qty()
+
         # Cancel productions until reach new_quantity
-        for production in productions:
+        for production in (productions - wip_production):
             if quantity_to_remove >= production.product_qty:
                 quantity_to_remove -= production.product_qty
                 production.with_context(skip_activity=True).action_cancel()
             else:
+                if float_is_zero(quantity_to_remove, precision_rounding=production.product_uom_id.rounding):
+                    # No need to do change_prod_qty for no change at all.
+                    break
                 self.env['change.production.qty'].with_context(skip_activity=True).create({
                     'mo_id': production.id,
-                    'product_qty': production.product_uom_qty - quantity_to_remove
+                    'product_qty': production.product_qty - quantity_to_remove
                 }).change_prod_qty()
                 break
 
@@ -328,3 +349,12 @@ class StockMove(models.Model):
         if self.env.user.has_group('base.group_portal') and not self.env.su:
             if vals.get('state') == 'done':
                 raise AccessError(_("Portal users cannot create a stock move with a state 'Done' or change the current state to 'Done'."))
+
+    def _is_subcontract_return(self):
+        self.ensure_one()
+        subcontracting_location = self.picking_id.partner_id.with_company(self.company_id).property_stock_subcontractor
+        return (
+                not self.is_subcontract
+                and self.origin_returned_move_id.is_subcontract
+                and self.location_dest_id.id == subcontracting_location.id
+        )

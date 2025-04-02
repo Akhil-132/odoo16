@@ -11,6 +11,7 @@ class TestStockFlow(TestStockCommon):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
+        cls.env.ref('base.group_user').write({'implied_ids': [(4, cls.env.ref('stock.group_production_lot').id)]})
         decimal_product_uom = cls.env.ref('product.decimal_product_uom')
         decimal_product_uom.digits = 3
         cls.partner_company2 = cls.env['res.partner'].create({
@@ -2480,29 +2481,6 @@ class TestStockFlow(TestStockCommon):
         pickings.button_validate()
         self.assertTrue(all(pickings.mapped(lambda p: p.state == 'done')), "Pickings should be set as done")
 
-    def test_pickings_on_duplicated_operation_types(self):
-        """ Ensure we can create pickings on duplicated operation types without collision in names
-            Steps:
-            - Create a picking on an operation type
-            - Duplicate the operation type
-            - Create another picking on the duplicated operation type
-        """
-        self.PickingObj.create({
-            'picking_type_id': self.picking_type_in,
-            'location_id': self.supplier_location,
-            'location_dest_id': self.stock_location,
-        })
-        duplicated_picking_type = self.env['stock.picking.type'].browse(self.picking_type_in).copy()
-        picking_2 = self.PickingObj.create({
-            'picking_type_id': duplicated_picking_type.id,
-            'location_id': self.supplier_location,
-            'location_dest_id': self.stock_location,
-        })
-        # trigger SQL constraints
-        self.PickingObj.flush_model()
-        self.assertEqual(self.PickingObj.search_count([('name', '=', picking_2.name)]), 1)
-
-
 @tagged('-at_install', 'post_install')
 class TestStockFlowPostInstall(TestStockCommon):
 
@@ -2574,5 +2552,25 @@ class TestStockFlowPostInstall(TestStockCommon):
         wizard.process()
 
         backorder = picking.backorder_ids
+
         self.assertEqual(backorder.move_ids.product_uom_qty, 2)
         self.assertEqual(backorder.move_ids.description_picking, 'Ipsum')
+
+    def test_name_create_location(self):
+        """
+        e.g., from .csv/.xlsx import:
+            If name str has a parent location prefix we try to create as child location
+            else ignore prefixes
+        """
+        parent_location = self.env['stock.location'].create({'name': 'ParentLocation'})
+        new_location_id = self.env['stock.location'].name_create('ParentLocation/TestLocation1')[0]
+        new_location = self.env['stock.location'].browse(new_location_id)
+        self.assertEqual(new_location.name, 'TestLocation1')
+        self.assertEqual(new_location.complete_name, 'ParentLocation/TestLocation1')
+        self.assertEqual(new_location.location_id, parent_location)
+
+        new_location_complete_name = self.env['stock.location'].name_create('FauxParentLocation/TestLocation2')[1]
+        self.assertEqual(new_location_complete_name, 'TestLocation2')
+
+        new_location_complete_name = self.env['stock.location'].name_create('NoPrefixLocation')[1]
+        self.assertEqual(new_location_complete_name, 'NoPrefixLocation')

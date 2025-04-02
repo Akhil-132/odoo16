@@ -9,6 +9,7 @@ odoo.define('website.s_website_form', function (require) {
     var publicWidget = require('web.public.widget');
     const dom = require('web.dom');
     const concurrency = require('web.concurrency');
+    const wUtils = require('website.utils');
 
     var _t = core._t;
     var qweb = core.qweb;
@@ -21,6 +22,16 @@ odoo.define('website.s_website_form', function (require) {
          */
         start: function () {
             if (this.editableMode) {
+                // TODO: Improve this. Since the form behavior was handled using
+                // two separate public widgets, and the "data-for" values were
+                // removed (on destroy before saving), we still need to restore
+                // them in edit mode in the case of a simple widget refresh.
+                this.dataForValues = wUtils.getParsedDataFor(this.$target[0].id, this.$target[0].ownerDocument);
+                for (const fieldEl of this._getDataForFields()) {
+                    if (!fieldEl.getAttribute("value")) {
+                        fieldEl.setAttribute("value", this.dataForValues[fieldEl.name]);
+                    }
+                }
                 // We do not initialize the datetime picker in edit mode but want the dates to be formated
                 const dateTimeFormat = time.getLangDatetimeFormat();
                 const dateFormat = time.getLangDateFormat();
@@ -34,12 +45,39 @@ odoo.define('website.s_website_form', function (require) {
             }
             return this._super(...arguments);
         },
+        /**
+         * @override
+         */
+        destroy() {
+            if (this.editableMode) {
+                // The "data-for" values are always correctly added to the form
+                // on the form widget start. But if we make any change to it in
+                // "edit" mode, we need to be sure it will not be saved with
+                // the new values.
+                for (const fieldEl of this._getDataForFields()) {
+                    fieldEl.removeAttribute("value");
+                }
+            }
+            this._super(...arguments);
+        },
+        /**
+         * @private
+         */
+        _getDataForFields() {
+            if (!this.dataForValues) {
+                return [];
+            }
+            return Object.keys(this.dataForValues)
+                .map(name => this.$target[0].querySelector(`[name="${CSS.escape(name)}"]`))
+                .filter(dataForValuesFieldEl => dataForValuesFieldEl && dataForValuesFieldEl.name !== "email_to");
+        }
     });
 
     publicWidget.registry.s_website_form = publicWidget.Widget.extend({
         selector: '.s_website_form form, form.s_website_form', // !compatibility
         events: {
             'click .s_website_form_send, .o_website_form_send': 'send', // !compatibility
+            'submit': 'send',
         },
 
         /**
@@ -126,25 +164,16 @@ odoo.define('website.s_website_form', function (require) {
             // Because, using t-att- inside form make it non-editable
             // Data-fill-with attribute is given during registry and is used by
             // to know which user data should be used to prfill fields.
-            const dataForEl = document.querySelector(`[data-for='${this.$target[0].id}']`);
+            let dataForValues = wUtils.getParsedDataFor(this.$target[0].id, document);
             this.editTranslations = !!this._getContext(true).edit_translations;
             // On the "edit_translations" mode, a <span/> with a translated term
             // will replace the attribute value, leading to some inconsistencies
             // (setting again the <span> on the attributes after the editor's
             // cleanup, setting wrong values on the attributes after translating
             // default values...)
-            if (!this.editTranslations && (dataForEl || Object.keys(this.preFillValues).length)) {
-                const dataForValues = dataForEl ?
-                    JSON.parse(dataForEl.dataset.values
-                        // replaces `True` by `true` if they are after `,` or `:` or `[`
-                        .replace(/([,:\[]\s*)True/g, '$1true')
-                        // replaces `False` and `None` by `""` if they are after `,` or `:` or `[`
-                        .replace(/([,:\[]\s*)(False|None)/g, '$1""')
-                        // replaces the `'` by `"` if they are before `,` or `:` or `]` or `}`
-                        .replace(/'(\s*[,:\]}])/g, '"$1')
-                        // replaces the `'` by `"` if they are after `{` or `[` or `,` or `:`
-                        .replace(/([{\[:,]\s*)'/g, '$1"')
-                    ) : {};
+            if (!this.editTranslations
+                    && (dataForValues || Object.keys(this.preFillValues).length)) {
+                dataForValues = dataForValues || {};
                 const fieldNames = this.$target.serializeArray().map(el => el.name);
                 // All types of inputs do not have a value property (eg:hidden),
                 // for these inputs any function that is supposed to put a value
@@ -154,7 +183,7 @@ odoo.define('website.s_website_form', function (require) {
                 // the values to submit() for these fields but this could break
                 // customizations that use the current behavior as a feature.
                 for (const name of fieldNames) {
-                    const fieldEl = this.$target[0].querySelector(`[name="${name}"]`);
+                    const fieldEl = this.$target[0].querySelector(`[name="${CSS.escape(name)}"]`);
 
                     // In general, we want the data-for and prefill values to
                     // take priority over set default values. The 'email_to'
@@ -247,8 +276,18 @@ odoo.define('website.s_website_form', function (require) {
             // All 'hidden if' fields start with d-none
             this.$target[0].querySelectorAll('.s_website_form_field_hidden_if:not(.d-none)').forEach(el => el.classList.add('d-none'));
 
+            // Prevent "data-for" values removal on destroy, they are still used
+            // in edit mode to keep the form linked to its predefined server
+            // values (e.g., the default `job_id` value on the application form
+            // for a given job).
+            const dataForValues = wUtils.getParsedDataFor(this.$target[0].id, document) || {};
+            const initialValuesToReset = new Map(
+                [...this.initialValues.entries()].filter(
+                    ([input]) => !dataForValues[input.name] || input.name === "email_to"
+                )
+            );
             // Reset the initial default values.
-            for (const [fieldEl, initialValue] of this.initialValues.entries()) {
+            for (const [fieldEl, initialValue] of initialValuesToReset.entries()) {
                 if (initialValue) {
                     fieldEl.setAttribute('value', initialValue);
                 } else {
@@ -721,10 +760,13 @@ odoo.define('website.s_website_form', function (require) {
         _updateFieldVisibility(fieldEl, haveToBeVisible) {
             const fieldContainerEl = fieldEl.closest('.s_website_form_field');
             fieldContainerEl.classList.toggle('d-none', !haveToBeVisible);
-            for (const inputEl of fieldContainerEl.querySelectorAll('.s_website_form_input')) {
-                // Hidden inputs should also be disabled so that their data are
-                // not sent on form submit.
-                inputEl.disabled = !haveToBeVisible;
+            // Do not disable inputs that are required for the model.
+            if (!fieldContainerEl.matches(".s_website_form_model_required")) {
+                for (const inputEl of fieldContainerEl.querySelectorAll(".s_website_form_input")) {
+                    // Hidden inputs should also be disabled so that their data are
+                    // not sent on form submit.
+                    inputEl.disabled = !haveToBeVisible;
+                }
             }
         },
 

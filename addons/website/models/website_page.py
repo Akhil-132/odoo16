@@ -91,6 +91,14 @@ class Page(models.Model):
         for page in self:
             page.website_url = page.url
 
+    @api.depends_context('uid')
+    def _compute_can_publish(self):
+        if self.env.user.has_group('website.group_website_designer'):
+            for record in self:
+                record.can_publish = True
+        else:
+            super()._compute_can_publish()
+
     def _get_most_specific_pages(self):
         ''' Returns the most specific pages in self. '''
         ids = []
@@ -178,6 +186,12 @@ class Page(models.Model):
                             'url_to': url,
                             'website_id': website_id,
                         })
+                    # Sync website's homepage URL
+                    website = self.env['website'].get_current_website()
+                    page_url_normalized = {'homepage_url': page.url}
+                    website._handle_homepage_url(page_url_normalized)
+                    if website.homepage_url == page_url_normalized['homepage_url']:
+                        website.homepage_url = url
                 vals['url'] = url
 
             # If name has changed, check for key uniqueness
@@ -236,7 +250,7 @@ class Page(models.Model):
         )
         results = most_specific_pages.filtered_domain(domain)  # already sudo
 
-        if with_description and search:
+        if with_description and search and most_specific_pages:
             # Perform search in translations
             # TODO Remove when domains will support xml_translate fields
             query = sql.SQL("""
