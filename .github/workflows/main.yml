@@ -22,8 +22,8 @@ jobs:
             set -e  # Exit on error
             
             # Ensure 'ubuntu' has access to /opt/odoo
-            sudo usermod -aG odoo16 ubuntu
-            sudo chmod -R g+rwX /opt/odoo
+            # sudo usermod -aG odoo16 ubuntu
+            # sudo chmod -R g+rwX /opt/odoo
 
             # Check if Odoo service exists
             if systemctl list-units --full -all | grep -q "odoo16.service"; then
@@ -58,6 +58,8 @@ jobs:
             sudo mkdir -p /opt/odoo
             sudo useradd -m -d /opt/odoo -U -r -s /bin/bash odoo16 || true
             sudo chown -R odoo16:odoo16 /opt/odoo
+            sudo usermod -aG odoo16 ubuntu
+            sudo chmod -R g+rwX /opt/odoo
             
             # Install dependencies
             sudo apt update && sudo apt install -y \
