@@ -27,6 +27,7 @@ jobs:
               
               cd /opt/odoo/odoo16
               cd /opt/odoo/odoo16
+              sudo git config --global --add safe.directory /opt/odoo/odoo16
               sudo git reset --hard origin/master  # Discard local changes
               sudo git clean -fd  # Remove untracked files
               sudo git pull origin master --force  # Pull latest changes
