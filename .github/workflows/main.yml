@@ -33,8 +33,8 @@ jobs:
               sudo git pull origin master --force  # Pull latest changes
               
               # Restart Odoo Service
-              echo "🔄 Restarting Odoo service..."
-              sudo systemctl restart odoo16
+              sudo systemctl restart odoo16 || echo "⚠️ Service restart failed, check logs!"
+              sudo systemctl status odoo16 --no-pager
               echo "✅ Odoo 16 Deployment Completed!"
               exit 0
             fi
