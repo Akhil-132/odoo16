@@ -21,20 +21,24 @@ jobs:
           ssh -o StrictHostKeyChecking=no -i key.pem ubuntu@${{ secrets.SERVER_IP }} << 'EOF'
             set -e  # Exit on error
             
+            # Ensure 'ubuntu' has access to /opt/odoo
+            sudo usermod -aG odoo16 ubuntu
+            sudo chmod -R g+rwX /opt/odoo
+
             # Check if Odoo service is running
             if systemctl is-active --quiet odoo16; then
               echo "🚀 Odoo is running. Pulling latest changes..."
               
-              cd /opt/odoo/odoo16
-              cd /opt/odoo/odoo16
+              cd /opt/odoo/odoo16 || exit 1
               sudo git config --global --add safe.directory /opt/odoo/odoo16
-              sudo git reset --hard origin/master  # Discard local changes
-              sudo git clean -fd  # Remove untracked files
-              sudo git pull origin master --force  # Pull latest changes
+              sudo git reset --hard origin/master || true
+              sudo git clean -fd || true
+              sudo git pull origin master --force || true
               
               # Restart Odoo Service
+              echo "🔄 Restarting Odoo service..."
               sudo systemctl restart odoo16 || echo "⚠️ Service restart failed, check logs!"
-              sudo systemctl status odoo16 --no-pager
+              sudo systemctl status odoo16 --no-pager || true
               echo "✅ Odoo 16 Deployment Completed!"
               exit 0
             fi
@@ -102,6 +106,7 @@ jobs:
             sudo systemctl enable odoo16
             sudo systemctl start odoo16
             echo "✅ Odoo installation complete!"
+            exit 0
           EOF
 
       - name: Clean up SSH Key
