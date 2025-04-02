@@ -1,5 +1,4 @@
 name: Deploy Odoo 16
-
 on:
   push:
     branches:
