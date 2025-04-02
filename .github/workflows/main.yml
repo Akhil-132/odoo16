@@ -25,9 +25,12 @@ jobs:
             sudo usermod -aG odoo16 ubuntu
             sudo chmod -R g+rwX /opt/odoo
             
-            # Check if Odoo service is running
-            if systemctl is-active --quiet odoo16; then
-              echo "🚀 Odoo is running. Pulling latest changes..."
+            # Check Odoo service status
+            ODOO_STATUS=\$(systemctl is-active odoo16 || echo "inactive")
+
+            if [ "\$ODOO_STATUS" = "active" ] || [ "\$ODOO_STATUS" = "failed" ]; then
+              echo "🚀 Odoo is running or failed. Pulling latest changes..."
+              
               cd /opt/odoo/odoo16 || exit 1
               sudo git config --global --add safe.directory /opt/odoo/odoo16
               sudo git reset --hard origin/master || true
@@ -88,7 +91,6 @@ jobs:
             Description=Odoo16
             Requires=postgresql.service
             After=network.target postgresql.service
-
             [Service]
             Type=simple
             SyslogIdentifier=odoo16
@@ -98,7 +100,6 @@ jobs:
             ExecStart=/opt/odoo/odoo16/odoo16-venv/bin/python3 /opt/odoo/odoo16/odoo-bin -c /etc/odoo16.conf
             Restart=always
             StandardOutput=journal+console
-
             [Install]
             WantedBy=multi-user.target" | sudo tee /etc/systemd/system/odoo16.service > /dev/null
             
