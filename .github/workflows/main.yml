@@ -37,6 +37,7 @@ jobs:
               # Restart Odoo Service
               echo "🔄 Restarting Odoo service..."
               sudo systemctl restart odoo16 || echo "⚠️ Service restart failed, check logs!"
+              sleep 10
               sudo systemctl status odoo16 --no-pager || true
               echo "✅ Odoo 16 Deployment Completed!"
               exit 0
