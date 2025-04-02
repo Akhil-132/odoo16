@@ -74,11 +74,11 @@ jobs:
             
             # Set up virtual environment
             sudo -u odoo16 bash -c '
-              cd /opt/odoo/odoo16
+              cd /opt/odoo/
               python3 -m venv odoo16-venv
               source odoo16-venv/bin/activate
               pip install --upgrade pip wheel
-              pip install -r requirements.txt
+              pip install -r /opt/odoo/odoo16/requirements.txt
               deactivate
             '
             
@@ -103,7 +103,7 @@ jobs:
             PermissionsStartOnly=true
             User=odoo16
             Group=odoo16
-            ExecStart=/opt/odoo/odoo16/odoo16-venv/bin/python3 /opt/odoo/odoo16/odoo-bin -c /etc/odoo16.conf
+            ExecStart=/opt/odoo/odoo16-venv/bin/python3 /opt/odoo/odoo16/odoo-bin -c /etc/odoo16.conf
             Restart=always
             StandardOutput=journal+console
             [Install]
