@@ -2,7 +2,7 @@ name: Deploy Odoo 16
 on:
   push:
     branches:
-      - master  # Adjust if using another branch
+      - master
 
 jobs:
   deploy:
@@ -26,9 +26,9 @@ jobs:
             sudo chmod -R g+rwX /opt/odoo
             
             # Check Odoo service status
-            ODOO_STATUS=\$(systemctl is-active odoo16 || echo "inactive")
+            ODOO_STATUS=$(systemctl is-active odoo16 || echo "inactive")
 
-            if [ "\$ODOO_STATUS" = "active" ] || [ "\$ODOO_STATUS" = "failed" ]; then
+            if [ "$ODOO_STATUS" = "active" ] || [ "$ODOO_STATUS" = "failed" ]; then
               echo "🚀 Odoo is running or failed. Pulling latest changes..."
               
               cd /opt/odoo/odoo16 || exit 1
