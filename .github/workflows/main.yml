@@ -16,26 +16,32 @@ jobs:
         run: |
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > key.pem
           chmod 600 key.pem
- 
+
       - name: Deploy to Remote Server
         run: |
           ssh -o StrictHostKeyChecking=no -i key.pem ubuntu@${{ secrets.SERVER_IP }} << 'EOF'
             set -e  # Exit on error
-            # Ensure Odoo directory exists
+            
+            # Check if Odoo is already installed
             if [ ! -d "/opt/odoo/odoo16" ]; then
               echo "🛠 First-time setup..."
               sudo mkdir -p /opt/odoo
               sudo useradd -m -d /opt/odoo -U -r -s /bin/bash odoo16 || true
               sudo chown -R odoo16:odoo16 /opt/odoo
+
               # Install dependencies
               sudo apt update && sudo apt install -y \
                 git python3-pip build-essential wget python3-dev python3-venv python3-wheel \
                 libfreetype6-dev libxml2-dev libzip-dev libldap2-dev libsasl2-dev python3-setuptools node-less \
-                libjpeg-dev zlib1g-dev libpq-dev libxslt1-dev libldb-dev libldap2-dev libtirpc-dev postgresql
-              # Set up PostgreSQL
-              sudo -u postgres psql -c "DO \$\$ BEGIN CREATE ROLE odoo16 WITH SUPERUSER LOGIN; EXCEPTION WHEN OTHERS THEN NULL; END \$\$;"
+                libjpeg-dev zlib1g-dev libpq-dev libxslt1-dev libldb-dev libtirpc-dev postgresql
+
+              # Set up PostgreSQL (only if user does not exist)
+              sudo -u postgres psql -tc "SELECT 1 FROM pg_roles WHERE rolname='odoo16'" | grep -q 1 || \
+              sudo -u postgres psql -c "CREATE ROLE odoo16 WITH SUPERUSER LOGIN;"
+
               # Clone Odoo repository
               sudo -u odoo16 git clone https://github.com/Akhil-132/odoo16.git /opt/odoo/odoo16
+
               # Set up virtual environment
               sudo -u odoo16 bash -c '
                 cd /opt/odoo/odoo16
@@ -45,6 +51,7 @@ jobs:
                 pip install -r requirements.txt
                 deactivate
               '
+
               # Create Odoo Configuration File
               echo "[options]
               admin_passwd = m0d1fyth15
@@ -54,11 +61,13 @@ jobs:
               db_password = False
               addons_path = /opt/odoo/odoo16/addons
               xmlrpc_port = 8069" | sudo tee /etc/odoo16.conf > /dev/null
+
               # Create Odoo Systemd Service
               echo "[Unit]
               Description=Odoo16
               Requires=postgresql.service
               After=network.target postgresql.service
+              
               [Service]
               Type=simple
               SyslogIdentifier=odoo16
@@ -68,34 +77,40 @@ jobs:
               ExecStart=/opt/odoo/odoo16/odoo16-venv/bin/python3 /opt/odoo/odoo16/odoo-bin -c /etc/odoo16.conf
               Restart=always
               StandardOutput=journal+console
+              
               [Install]
               WantedBy=multi-user.target" | sudo tee /etc/systemd/system/odoo16.service > /dev/null
+
               sudo systemctl daemon-reload
               sudo systemctl enable odoo16
               sudo systemctl start odoo16
               echo "✅ First-time setup complete!"
+            else
+              echo "🚀 Odoo installation found. Skipping first-time setup."
             fi
+
             # Navigate to Odoo directory
             cd /opt/odoo/odoo16
-            # Check if there are any new changes in the repository
-            sudo -u odoo16 git fetch origin main
-            CHANGED_FILES=$(sudo -u odoo16 git diff --name-only origin/main)
- 
-            if [ -z "$CHANGED_FILES" ]; then
+
+            # Check if updates are needed
+            LOCAL_COMMIT=\$(sudo -u odoo16 git rev-parse HEAD)
+            REMOTE_COMMIT=\$(sudo -u odoo16 git ls-remote origin -h refs/heads/main | awk '{print \$1}')
+
+            if [ "\$LOCAL_COMMIT" = "\$REMOTE_COMMIT" ]; then
               echo "🚀 No changes detected. Skipping deployment."
               exit 0
             fi
- 
+
             # Pull the latest changes
             echo "🔄 Pulling latest changes..."
-            # sudo -u odoo16 git reset --hard origin/main
+            sudo -u odoo16 git reset --hard origin/main
             sudo -u odoo16 git pull origin main
- 
+
             # Restart Odoo Service
             echo "🔄 Restarting Odoo service..."
             sudo systemctl restart odoo16
             echo "✅ Odoo 16 Deployment Completed!"
           EOF
- 
+
       - name: Clean up SSH Key
         run: rm -f key.pem
