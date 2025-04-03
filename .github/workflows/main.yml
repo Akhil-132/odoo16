@@ -117,7 +117,7 @@ jobs:
             sudo systemctl start odoo16
             
             echo "✅ Odoo installation complete!"
-            exit 0
+            # exit 0
           EOF
         continue-on-error: true
 
