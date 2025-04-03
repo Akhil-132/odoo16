@@ -51,7 +51,7 @@ jobs:
               sudo systemctl status odoo16 --no-pager || true
               echo "✅ Odoo 16 Deployment Completed!"
               # exit 0
-            EOF
+  
             fi
 
             echo "🛠 Odoo service does not exist. Installing from scratch..."
