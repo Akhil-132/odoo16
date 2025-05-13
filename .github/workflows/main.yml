@@ -3,10 +3,12 @@ name: Deploy Odoo 16
 on:
   push:
     branches:
-      - master  # Adjust if using another branch
+      - master  # Auto deploy to development
+  workflow_dispatch:  # Manual trigger for production only
 
 jobs:
-  deploy:
+  deploy-development:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
@@ -17,108 +19,140 @@ jobs:
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > key.pem
           chmod 600 key.pem
 
-      - name: Deploy to Remote Server
+      - name: Deploy to Development Server
         run: |
           ssh -o StrictHostKeyChecking=no -i key.pem ubuntu@${{ secrets.SERVER_IP }} << 'EOF'
-            set -e  # Exit on error
-            
-            # Ensure 'ubuntu' has access to /opt/odoo
-            # sudo usermod -aG odoo16 ubuntu
-            # sudo chmod -R g+rwX /opt/odoo
+            set -e
 
-            # Check if Odoo service exists
             if systemctl list-units --full -all | grep -q "odoo16.service"; then
-              # Service exists, check its status
-              if systemctl is-active --quiet odoo16; then
-                echo "🚀 Odoo is active. Pulling latest changes..."
-              elif systemctl is-failed --quiet odoo16; then
-                echo "⚠️ Odoo is in a failed state. Pulling latest changes and restarting..."
-              else
-                echo "❓ Odoo is in an unknown state. Restarting..."
-              fi
-
-              # Pull latest code
-              cd /opt/odoo/odoo16 
+              echo "🚀 Updating existing Odoo development deployment..."
+              cd /opt/odoo/odoo16
               sudo git config --global --add safe.directory /opt/odoo/odoo16
               sudo git pull origin master --force || true
-
-              # Restart Odoo Service
-              echo "🔄 Restarting Odoo service..."
-              sudo systemctl restart odoo16 || echo "⚠️ Service restart failed, check logs!"
-              sleep 10
-              sudo systemctl status odoo16 --no-pager || true
-              echo "✅ Odoo 16 Deployment Completed!"
+              sudo systemctl restart odoo16
+              echo "✅ Development deployment complete."
               exit 0
-  
             fi
 
-            echo "🛠 Odoo service does not exist. Installing from scratch..."
-            
-            # Create Odoo directory and user if not exists
+            echo "⚙️ Setting up Odoo development for the first time..."
             sudo mkdir -p /opt/odoo
-            sudo useradd -m -d /opt/odoo -U -r -s /bin/bash odoo16 || true
-            sudo chown -R odoo16:odoo16 /opt/odoo
-            sudo usermod -aG odoo16 ubuntu
+            sudo useradd -m -d /opt/odoo -U -r -s /bin/bash odoo || true
+            sudo chown -R odoo:odoo /opt/odoo
+            sudo usermod -aG odoo ubuntu
             sudo chmod -R g+rwX /opt/odoo
-            
-            # Install dependencies
+
             sudo apt update && sudo apt install -y \
               git python3-pip build-essential wget python3-dev python3-venv python3-wheel \
-              libfreetype6-dev libxml2-dev libzip-dev libldap2-dev libsasl2-dev python3-setuptools node-less \
-              libjpeg-dev zlib1g-dev libpq-dev libxslt1-dev libldb-dev libldap2-dev libtirpc-dev postgresql
-            
-            # Set up PostgreSQL (only if user does not exist)
-            sudo -u postgres psql -tc "SELECT 1 FROM pg_roles WHERE rolname='odoo16'" | grep -q 1 || \
-            sudo -u postgres psql -c "CREATE ROLE odoo16 WITH SUPERUSER LOGIN;"
-            
-            # Clone Odoo repository
-            sudo -u odoo16 git clone https://github.com/Akhil-132/odoo16.git /opt/odoo/odoo16
-            
-            # Set up virtual environment
-            sudo -u odoo16 bash -c '
+              libfreetype6-dev libxml2-dev libzip-dev libldap2-dev libsasl2-dev python3-setuptools \
+              node-less libjpeg-dev zlib1g-dev libpq-dev libxslt1-dev libldb-dev libtirpc-dev postgresql
+
+            sudo -u postgres psql -tc "SELECT 1 FROM pg_roles WHERE rolname='odoo'" | grep -q 1 || \
+            sudo -u postgres psql -c "CREATE ROLE odoo WITH SUPERUSER LOGIN;"
+
+            sudo -u odoo git clone https://github.com/Akhil-132/odoo16.git /opt/odoo/odoo16
+
+            sudo -u odoo bash -c '
               cd /opt/odoo/
-              python3 -m venv odoo16-venv
-              source odoo16-venv/bin/activate
+              python3 -m venv odoo-venv
+              source odoo-venv/bin/activate
               pip install --upgrade pip wheel
               pip install -r /opt/odoo/odoo16/requirements.txt
               deactivate
             '
-            
-            # Create Odoo Configuration File
+
             echo "[options]
             admin_passwd = m0d1fyth15
             db_host = False
             db_port = False
-            db_user = odoo16
+            db_user = odoo
             db_password = False
             addons_path = /opt/odoo/odoo16/addons
-            xmlrpc_port = 8069" | sudo tee /etc/odoo16.conf > /dev/null
-            
-            # Create Odoo Systemd Service
+            xmlrpc_port = 8070" | sudo tee /etc/odoo16.conf > /dev/null
+
             echo "[Unit]
-            Description=Odoo16
+            Description=Odoo16 Development
             Requires=postgresql.service
             After=network.target postgresql.service
             [Service]
             Type=simple
             SyslogIdentifier=odoo16
             PermissionsStartOnly=true
-            User=odoo16
-            Group=odoo16
-            ExecStart=/opt/odoo/odoo16-venv/bin/python3 /opt/odoo/odoo16/odoo-bin -c /etc/odoo16.conf
+            User=odoo
+            Group=odoo
+            ExecStart=/opt/odoo/odoo-venv/bin/python3 /opt/odoo/odoo16/odoo-bin -c /etc/odoo16.conf
             Restart=always
             StandardOutput=journal+console
             [Install]
             WantedBy=multi-user.target" | sudo tee /etc/systemd/system/odoo16.service > /dev/null
-            
+
             sudo systemctl daemon-reload
             sudo systemctl enable odoo16
             sudo systemctl start odoo16
-            
-            echo "✅ Odoo installation complete!"
-            # exit 0
+            echo "✅ Odoo development setup complete!"
           EOF
-        continue-on-error: true
+
+      - name: Clean up SSH Key
+        run: rm -f key.pem
+
+  deploy-production:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Set up SSH Key
+        run: |
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > key.pem
+          chmod 600 key.pem
+
+      - name: Deploy to Production Server
+        run: |
+          ssh -o StrictHostKeyChecking=no -i key.pem ubuntu@${{ secrets.SERVER_IP_PROD }} << 'EOF'
+            set -e
+            echo "🚀 Starting production deployment at \$(date)"
+
+            if [ -f /etc/odoo16_prod.conf ] && [ -f /etc/systemd/system/odoo16_prod.service ]; then
+              echo "ℹ️ Config files already exist. Skipping config copy."
+              echo "🔄 Copying updated code to production..."
+              sudo cp -r /opt/odoo/odoo16 /opt/odoo/odoo16_prod
+              sudo systemctl restart odoo16_prod
+            else
+              echo "🔧 First-time production setup..."
+              sudo cp -r /opt/odoo/odoo16 /opt/odoo/odoo16_prod
+
+              echo "[options]
+              admin_passwd = m0d1fyth15
+              db_host = False
+              db_port = False
+              db_user = odoo
+              db_password = False
+              addons_path = /opt/odoo/odoo16_prod/addons
+              xmlrpc_port = 8069" | sudo tee /etc/odoo16_prod.conf > /dev/null
+
+              echo "[Unit]
+              Description=Odoo16 Production
+              Requires=postgresql.service
+              After=network.target postgresql.service
+              [Service]
+              Type=simple
+              SyslogIdentifier=odoo16_prod
+              PermissionsStartOnly=true
+              User=odoo
+              Group=odoo
+              ExecStart=/opt/odoo/odoo-venv/bin/python3 /opt/odoo/odoo16_prod/odoo-bin -c /etc/odoo16_prod.conf
+              Restart=always
+              StandardOutput=journal+console
+              [Install]
+              WantedBy=multi-user.target" | sudo tee /etc/systemd/system/odoo16_prod.service > /dev/null
+
+              sudo systemctl daemon-reload
+              sudo systemctl enable odoo16_prod
+              sudo systemctl start odoo16_prod
+            fi
+
+            echo "✅ Production deployment completed at \$(date)"
+          EOF
 
       - name: Clean up SSH Key
         run: rm -f key.pem
