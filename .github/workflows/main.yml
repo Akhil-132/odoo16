@@ -95,10 +95,8 @@ jobs:
         run: rm -f key.pem
 
   deploy-production:
-    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    env:
-      PROD_IP: ${{ secrets.SERVER_IP_PROD }}
+    if: github.event_name == 'workflow_dispatch'  # Only run if development deployment is successful
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v3
@@ -110,37 +108,34 @@ jobs:
 
       - name: Deploy to Production Server
         run: |
-          ssh -o StrictHostKeyChecking=no -i key.pem ubuntu@${{ secrets.SERVER_IP_PROD }} << EOF
-            set -e
-            SERVER_IP="$PROD_IP"
+          ssh -o StrictHostKeyChecking=no -i key.pem ubuntu@${{ secrets.SERVER_IP_PROD }} << 'EOF'
+            set -e  # Exit on error
 
-            echo "🚀 Starting production deployment at \$(date)"
+            echo "🚀 Deploying code to production..."
 
-            # Install Nginx if not already installed
-            if ! command -v nginx > /dev/null; then
-              echo "🔧 Installing Nginx..."
-              sudo apt update
-              sudo apt install -y nginx
-            fi
+            # Check if Odoo service files exist
+            if [ -f /etc/odoo.conf ] && [ -f /etc/systemd/system/odoo.service ]; then
+              echo "ℹ️ Odoo service files exist. Copying the latest code to production..."
 
-            # Setup or update Odoo code and service
-            if [ -f /etc/odoo16_prod.conf ] && [ -f /etc/systemd/system/odoo16_prod.service ]; then
-              echo "ℹ️ Odoo production service already configured. Pulling latest code..."
+              # Just copy the latest code to the production folder
               sudo cp -r /opt/odoo/odoo16 /opt/odoo/odoo16_prod
+
+              # Restart the Odoo service
+              echo "🔄 Restarting Odoo service..."
               sudo systemctl restart odoo16_prod
+
             else
-              echo "🔧 First-time Odoo production setup..."
+              # Odoo service files do not exist, setting up from scratch
+              echo "❓ Odoo service files not found. Setting up the production environment..."
+
+              # Copy development code to production (only if not exists)
               sudo cp -r /opt/odoo/odoo16 /opt/odoo/odoo16_prod
 
-              echo "[options]
-              admin_passwd = m0d1fyth15
-              db_host = False
-              db_port = False
-              db_user = odoo
-              db_password = False
-              addons_path = /opt/odoo/odoo16_prod/addons
-              xmlrpc_port = 8069" | sudo tee /etc/odoo16_prod.conf > /dev/null
+              # Copy and update odoo.conf for production (port 8069)
+              sudo cp /etc/odoo.conf /etc/odoo_prod.conf
+              sudo sed -i 's/xmlrpc_port = 8070/xmlrpc_port = 8069/' /etc/odoo_prod.conf
 
+              # Create or update the production systemd service file
               echo "[Unit]
               Description=Odoo16 Production
               Requires=postgresql.service
@@ -151,53 +146,47 @@ jobs:
               PermissionsStartOnly=true
               User=odoo
               Group=odoo
-              ExecStart=/opt/odoo/odoo-venv/bin/python3 /opt/odoo/odoo16_prod/odoo-bin -c /etc/odoo16_prod.conf
+              ExecStart=/opt/odoo/odoo16-venv/bin/python3 /opt/odoo/odoo16_prod/odoo-bin -c /etc/odoo_prod.conf
               Restart=always
               StandardOutput=journal+console
               [Install]
               WantedBy=multi-user.target" | sudo tee /etc/systemd/system/odoo16_prod.service > /dev/null
 
               sudo systemctl daemon-reload
-              sudo systemctl enable odoo16_prod
-              sudo systemctl start odoo16_prod
+              sudo systemctl restart odoo16_prod
             fi
 
-            # Configure Nginx only once
-            if [ ! -f /etc/nginx/sites-available/odoo16_prod ]; then
-              echo "🔧 Creating Nginx config..."
-              sudo tee /etc/nginx/sites-available/odoo16_prod > /dev/null << NGX
-server {
-    listen 80;
-    server_name \$SERVER_IP;
+            # Install Nginx if not installed
+            echo "🔄 Installing Nginx..."
+            sudo apt update
+            sudo apt install -y nginx
 
-    access_log /var/log/nginx/odoo16_prod_access.log;
-    error_log /var/log/nginx/odoo16_prod_error.log;
+            # Create Nginx config only if it doesn't exist
+            if [ ! -f /etc/nginx/sites-available/odoo ]; then
+              echo "📜 Creating Nginx config..."
+              echo "server {
+                listen 80;
+                server_name ${{ secrets.SERVER_IP_PROD }};
 
-    location / {
-        proxy_pass http://127.0.0.1:8069;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-    }
+                access_log /var/log/nginx/odoo_access.log;
+                error_log /var/log/nginx/odoo_error.log;
 
-    location ~* /web/static/ {
-        proxy_cache_valid 200 90m;
-        proxy_buffering on;
-        expires 864000;
-        proxy_pass http://127.0.0.1:8069;
-    }
-}
-NGX
-              sudo ln -sf /etc/nginx/sites-available/odoo16_prod /etc/nginx/sites-enabled/
+                location / {
+                    proxy_pass http://127.0.0.1:8069;
+                    proxy_set_header Host \$host;
+                    proxy_set_header X-Real-IP \$remote_addr;
+                    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+                    proxy_set_header X-Forwarded-Proto \$scheme;
+                }
+              }" | sudo tee /etc/nginx/sites-available/odoo > /dev/null
+
+              sudo ln -s /etc/nginx/sites-available/odoo /etc/nginx/sites-enabled/ || true
+              sudo nginx -t && sudo systemctl restart nginx
             else
-              echo "✅ Nginx config already exists. Skipping creation."
+              echo "ℹ️ Nginx config already exists. Skipping creation."
             fi
 
-            echo "🔁 Restarting Nginx..."
-            sudo nginx -t && sudo systemctl reload nginx
-
-            echo "✅ Production deployment completed at \$(date)"
+            echo "✅ Production deployment complete with Nginx reverse proxy!"
           EOF
 
       - name: Clean up SSH Key
