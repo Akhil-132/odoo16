@@ -114,7 +114,7 @@ jobs:
             echo "🚀 Deploying code to production..."
 
             # Check if Odoo service files exist
-            if [ -f /etc/odoo.conf ] && [ -f /etc/systemd/system/odoo.service ]; then
+            if [ -f /etc/odoo16_prod.conf ] && [ -f /etc/systemd/system/odoo16_prod.service ]; then
               echo "ℹ️ Odoo service files exist. Copying the latest code to production..."
 
               # Just copy the latest code to the production folder
@@ -132,8 +132,8 @@ jobs:
               sudo cp -r /opt/odoo/odoo16 /opt/odoo/odoo16_prod
 
               # Copy and update odoo.conf for production (port 8069)
-              sudo cp /etc/odoo.conf /etc/odoo_prod.conf
-              sudo sed -i 's/xmlrpc_port = 8070/xmlrpc_port = 8069/' /etc/odoo_prod.conf
+              sudo cp /etc/odoo16.conf /etc/odoo16_prod.conf
+              sudo sed -i 's/xmlrpc_port = 8070/xmlrpc_port = 8069/' /etc/odoo16_prod.conf
 
               # Create or update the production systemd service file
               echo "[Unit]
