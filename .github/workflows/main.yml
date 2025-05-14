@@ -121,15 +121,6 @@ jobs:
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > key.pem
           chmod 600 key.pem
 
-      - name: Backup PostgreSQL Database
-        run: |
-          BACKUP_FILE="/tmp/odoo_backup_$(date +%F_%H-%M-%S).sql.gz"
-          echo "🧠 Backing up PostgreSQL databases..."
-          sudo -u postgres pg_dumpall | gzip > "$BACKUP_FILE"
-          echo "✅ Backup saved to $BACKUP_FILE"
-          sudo mv "$BACKUP_FILE" /opt/odoo/
-          sudo chown postgres:postgres /opt/odoo/$(basename $BACKUP_FILE)
-
       - name: Deploy to Production Server
         run: |
           ssh -o StrictHostKeyChecking=no -i key.pem ubuntu@${{ secrets.SERVER_IP_PROD }} << 'EOF'
@@ -147,7 +138,7 @@ jobs:
             else
               echo "ℹ️ Odoo configuration or systemd service not found, skipping backup."
             fi
-
+            
             echo "🚀 Deploying code to production..."
             # Check if Odoo service files exist
             if [ -f /etc/odoo16_prod.conf ] && [ -f /etc/systemd/system/odoo16_prod.service ]; then
@@ -178,10 +169,14 @@ jobs:
               sudo systemctl restart odoo16_prod
             fi
 
-            # Install Nginx if not installed
-            echo "🔄 Installing Nginx..."
-            sudo apt update
-            sudo apt install -y nginx
+            # Ensure Nginx is installed
+            if ! command -v nginx > /dev/null; then
+              echo "🔄 Nginx not found. Installing..."
+              sudo apt update
+              sudo apt install -y nginx
+            else
+              echo "✅ Nginx already installed. Skipping installation."
+            fi
 
             # Create Nginx config only if it doesn't exist
             if [ ! -f /etc/nginx/sites-available/odoo ]; then
