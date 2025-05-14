@@ -97,6 +97,8 @@ jobs:
   deploy-production:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    env:
+      PROD_IP: ${{ secrets.SERVER_IP_PROD }}
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v3
@@ -108,17 +110,26 @@ jobs:
 
       - name: Deploy to Production Server
         run: |
-          ssh -o StrictHostKeyChecking=no -i key.pem ubuntu@${{ secrets.SERVER_IP_PROD }} << 'EOF'
+          ssh -o StrictHostKeyChecking=no -i key.pem ubuntu@${{ secrets.SERVER_IP_PROD }} << EOF
             set -e
+            SERVER_IP="$PROD_IP"
+
             echo "🚀 Starting production deployment at \$(date)"
 
+            # Install Nginx if not already installed
+            if ! command -v nginx > /dev/null; then
+              echo "🔧 Installing Nginx..."
+              sudo apt update
+              sudo apt install -y nginx
+            fi
+
+            # Setup or update Odoo code and service
             if [ -f /etc/odoo16_prod.conf ] && [ -f /etc/systemd/system/odoo16_prod.service ]; then
-              echo "ℹ️ Config files already exist. Skipping config copy."
-              echo "🔄 Copying updated code to production..."
+              echo "ℹ️ Odoo production service already configured. Pulling latest code..."
               sudo cp -r /opt/odoo/odoo16 /opt/odoo/odoo16_prod
               sudo systemctl restart odoo16_prod
             else
-              echo "🔧 First-time production setup..."
+              echo "🔧 First-time Odoo production setup..."
               sudo cp -r /opt/odoo/odoo16 /opt/odoo/odoo16_prod
 
               echo "[options]
@@ -150,6 +161,41 @@ jobs:
               sudo systemctl enable odoo16_prod
               sudo systemctl start odoo16_prod
             fi
+
+            # Configure Nginx only once
+            if [ ! -f /etc/nginx/sites-available/odoo16_prod ]; then
+              echo "🔧 Creating Nginx config..."
+              sudo tee /etc/nginx/sites-available/odoo16_prod > /dev/null << NGX
+server {
+    listen 80;
+    server_name \$SERVER_IP;
+
+    access_log /var/log/nginx/odoo16_prod_access.log;
+    error_log /var/log/nginx/odoo16_prod_error.log;
+
+    location / {
+        proxy_pass http://127.0.0.1:8069;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+
+    location ~* /web/static/ {
+        proxy_cache_valid 200 90m;
+        proxy_buffering on;
+        expires 864000;
+        proxy_pass http://127.0.0.1:8069;
+    }
+}
+NGX
+              sudo ln -sf /etc/nginx/sites-available/odoo16_prod /etc/nginx/sites-enabled/
+            else
+              echo "✅ Nginx config already exists. Skipping creation."
+            fi
+
+            echo "🔁 Restarting Nginx..."
+            sudo nginx -t && sudo systemctl reload nginx
 
             echo "✅ Production deployment completed at \$(date)"
           EOF
