@@ -41,6 +41,7 @@ jobs:
             echo "⚙️ Deploying to development environment..."
             if systemctl list-units --full -all | grep -q "odoo16.service"; then
               echo "🚀 Updating existing Odoo development deployment..."
+              sudo chown -R odoo:odoo /opt/odoo/odoo16
               sudo -u odoo bash -c '
                 export GIT_SSH_COMMAND="ssh -i /home/ubuntu/.ssh/deploy_key -o StrictHostKeyChecking=no"
                 cd /opt/odoo/odoo16
@@ -66,7 +67,7 @@ jobs:
 
             sudo -u postgres psql -tc "SELECT 1 FROM pg_roles WHERE rolname='odoo'" | grep -q 1 || \
             sudo -u postgres psql -c "CREATE ROLE odoo WITH SUPERUSER LOGIN;"
-
+            
             sudo -u odoo bash -c '
               export GIT_SSH_COMMAND="ssh -i /home/ubuntu/.ssh/deploy_key -o StrictHostKeyChecking=no"
               git clone git@github.com:Akhil-132/odoo16.git /opt/odoo/odoo16
