@@ -37,14 +37,19 @@ jobs:
               echo "ℹ️ Odoo configuration or systemd service not found, skipping backup."
             fi
 
-            echo "⚙️ Deploying to development environment..."
-            # Check if Odoo service exists, if not, deploy fresh
-            if systemctl list-units --full -all | grep -q "odoo16.service"; then
+            # Check if code directory exists for update, else fresh setup
+            if [ -d /opt/odoo/odoo16 ]; then
               echo "🚀 Updating existing Odoo development deployment..."
               cd /opt/odoo/odoo16
               sudo git config --global --add safe.directory /opt/odoo/odoo16
               sudo git pull origin master --force || true
-              sudo systemctl restart odoo16
+
+              if [ -f /etc/systemd/system/odoo16.service ]; then
+                sudo systemctl restart odoo16
+              else
+                echo "Systemd service file not found, skipping restart."
+              fi
+
               echo "✅ Development deployment complete."
               exit 0
             fi
