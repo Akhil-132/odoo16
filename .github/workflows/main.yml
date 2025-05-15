@@ -23,34 +23,33 @@ jobs:
         run: |
           ssh -o StrictHostKeyChecking=no -i key.pem ubuntu@${{ secrets.SERVER_IP }} << 'EOF'
             set -e
+            echo "⚙️ Checking if Odoo configuration and systemd service exist for backup..."
 
-            echo "⚙️ Setting up GitHub SSH deploy key..."
-            mkdir -p ~/.ssh
-            echo "${{ secrets.GITHUB_DEPLOY_KEY }}" > ~/.ssh/id_rsa
-            chmod 600 ~/.ssh/id_rsa
-            ssh-keyscan github.com >> ~/.ssh/known_hosts
-
-            echo "⚙️ Checking for existing Odoo deployment..."
+            # Check if Odoo conf and systemd service exist for backup
             if [ -f /etc/odoo16.conf ] && [ -f /etc/systemd/system/odoo16.service ]; then
               BACKUP_FILE="/tmp/odoo_backup_$(date +%F_%H-%M-%S).sql.gz"
-              echo "🧠 Backing up PostgreSQL..."
+              echo "🧠 Backing up PostgreSQL databases..."
               sudo -u postgres pg_dumpall | gzip > "$BACKUP_FILE"
+              echo "✅ Backup saved to $BACKUP_FILE"
               sudo mv "$BACKUP_FILE" /opt/odoo/
               sudo chown postgres:postgres /opt/odoo/$(basename $BACKUP_FILE)
             else
-              echo "ℹ️ No existing setup found, skipping backup."
+              echo "ℹ️ Odoo configuration or systemd service not found, skipping backup."
             fi
 
+            echo "⚙️ Deploying to development environment..."
+            # Check if Odoo service exists, if not, deploy fresh
             if systemctl list-units --full -all | grep -q "odoo16.service"; then
-              echo "🚀 Pulling latest code..."
+              echo "🚀 Updating existing Odoo development deployment..."
               cd /opt/odoo/odoo16
               sudo git config --global --add safe.directory /opt/odoo/odoo16
-              GIT_SSH_COMMAND="ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no" sudo git pull origin master
+              sudo git pull origin master --force || true
               sudo systemctl restart odoo16
+              echo "✅ Development deployment complete."
               exit 0
             fi
 
-            echo "🛠 Setting up new Odoo development environment..."
+            echo "⚙️ Setting up Odoo development for the first time..."
             sudo mkdir -p /opt/odoo
             sudo useradd -m -d /opt/odoo -U -r -s /bin/bash odoo || true
             sudo chown -R odoo:odoo /opt/odoo
@@ -65,8 +64,8 @@ jobs:
             sudo -u postgres psql -tc "SELECT 1 FROM pg_roles WHERE rolname='odoo'" | grep -q 1 || \
             sudo -u postgres psql -c "CREATE ROLE odoo WITH SUPERUSER LOGIN;"
 
-            echo "📦 Cloning private repo..."
-            GIT_SSH_COMMAND="ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no" sudo -u odoo git clone git@github.com:Akhil-132/odoo16.git /opt/odoo/odoo16
+            echo "📦 Cloning private repository..."
+            GIT_SSH_COMMAND="ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no" git clone git@github.com:Akhil-132/odoo16.git /opt/odoo/odoo16
 
             sudo -u odoo bash -c '
               cd /opt/odoo/
@@ -84,7 +83,7 @@ jobs:
             db_user = odoo
             db_password = False
             addons_path = /opt/odoo/odoo16/addons
-            xmlrpc_port = 8070" | sudo tee /etc/odoo16.conf
+            xmlrpc_port = 8070" | sudo tee /etc/odoo16.conf > /dev/null
 
             echo "[Unit]
             Description=Odoo16 Development
@@ -100,12 +99,112 @@ jobs:
             Restart=always
             StandardOutput=journal+console
             [Install]
-            WantedBy=multi-user.target" | sudo tee /etc/systemd/system/odoo16.service
+            WantedBy=multi-user.target" | sudo tee /etc/systemd/system/odoo16.service > /dev/null
 
             sudo systemctl daemon-reload
             sudo systemctl enable odoo16
             sudo systemctl start odoo16
             echo "✅ Odoo development setup complete!"
+          EOF
+
+      - name: Clean up SSH Key
+        run: rm -f key.pem
+
+  deploy-production:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'  # Only run if production deployment is triggered
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Set up SSH Key
+        run: |
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > key.pem
+          chmod 600 key.pem
+
+      - name: Deploy to Production Server
+        run: |
+          ssh -o StrictHostKeyChecking=no -i key.pem ubuntu@${{ secrets.SERVER_IP_PROD }} << 'EOF'
+            set -e  # Exit on error
+
+            # Backup logic before deploying if Odoo conf and systemd service files exist
+            echo "⚙️ Checking if Odoo configuration and systemd service exist for backup..."
+            if [ -f /etc/odoo16_prod.conf ] && [ -f /etc/systemd/system/odoo16_prod.service ]; then
+              BACKUP_FILE="/tmp/odoo_backup_$(date +%F_%H-%M-%S).sql.gz"
+              echo "🧠 Backing up PostgreSQL databases..."
+              sudo -u postgres pg_dumpall | gzip > "$BACKUP_FILE"
+              echo "✅ Backup saved to $BACKUP_FILE"
+              sudo mv "$BACKUP_FILE" /opt/odoo/
+              sudo chown postgres:postgres /opt/odoo/$(basename $BACKUP_FILE)
+            else
+              echo "ℹ️ Odoo configuration or systemd service not found, skipping backup."
+            fi
+            
+            echo "🚀 Deploying code to production..."
+            # Check if Odoo service files exist
+            if [ -f /etc/odoo16_prod.conf ] && [ -f /etc/systemd/system/odoo16_prod.service ]; then
+              echo "ℹ️ Odoo service files exist. Copying the latest code to production..."
+              sudo cp -r /opt/odoo/odoo16 /opt/odoo/odoo16_prod
+              sudo systemctl restart odoo16_prod
+            else
+              echo "❓ Odoo service files not found. Setting up the production environment..."
+              sudo cp -r /opt/odoo/odoo16 /opt/odoo/odoo16_prod
+              sudo cp /etc/odoo16.conf /etc/odoo16_prod.conf
+              sudo sed -i 's/xmlrpc_port = 8070/xmlrpc_port = 8069/' /etc/odoo16_prod.conf
+              echo "[Unit]
+              Description=Odoo16 Production
+              Requires=postgresql.service
+              After=network.target postgresql.service
+              [Service]
+              Type=simple
+              SyslogIdentifier=odoo16_prod
+              PermissionsStartOnly=true
+              User=odoo
+              Group=odoo
+              ExecStart=/opt/odoo/odoo16-venv/bin/python3 /opt/odoo/odoo16_prod/odoo-bin -c /etc/odoo16_prod.conf
+              Restart=always
+              StandardOutput=journal+console
+              [Install]
+              WantedBy=multi-user.target" | sudo tee /etc/systemd/system/odoo16_prod.service > /dev/null
+              sudo systemctl daemon-reload
+              sudo systemctl restart odoo16_prod
+            fi
+
+            # Ensure Nginx is installed
+            if ! command -v nginx > /dev/null; then
+              echo "🔄 Nginx not found. Installing..."
+              sudo apt update
+              sudo apt install -y nginx
+            else
+              echo "✅ Nginx already installed. Skipping installation."
+            fi
+
+            # Create Nginx config only if it doesn't exist
+            if [ ! -f /etc/nginx/sites-available/odoo ]; then
+              echo "📜 Creating Nginx config..."
+              echo "server {
+                listen 80;
+                server_name ${{ secrets.SERVER_IP_PROD }};
+
+                access_log /var/log/nginx/odoo_access.log;
+                error_log /var/log/nginx/odoo_error.log;
+
+                location / {
+                    proxy_pass http://127.0.0.1:8069;
+                    proxy_set_header Host \$host;
+                    proxy_set_header X-Real-IP \$remote_addr;
+                    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+                    proxy_set_header X-Forwarded-Proto \$scheme;
+                }
+              }" | sudo tee /etc/nginx/sites-available/odoo > /dev/null
+
+              sudo ln -s /etc/nginx/sites-available/odoo /etc/nginx/sites-enabled/ || true
+              sudo nginx -t && sudo systemctl restart nginx
+            else
+              echo "ℹ️ Nginx config already exists. Skipping creation."
+            fi
+
+            echo "✅ Production deployment complete with Nginx reverse proxy!"
           EOF
 
       - name: Clean up SSH Key
