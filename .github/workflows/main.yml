@@ -3,7 +3,7 @@ name: Clone Odoo16 Repo on Server
 on:
   push:
     branches:
-      - master  # Trigger on push to master branch
+      - master
 
 jobs:
   clone:
@@ -15,16 +15,14 @@ jobs:
         mkdir -p ~/.ssh
         echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
         chmod 600 ~/.ssh/id_rsa
-        ssh-keyscan -H 34.121.184.250 >> ~/.ssh/known_hosts
 
-    - name: SSH into Server and Clone Repo
+    - name: SSH and Clone Repo (Skip Host Key Check)
       run: |
-        ssh -i ~/.ssh/id_rsa ubuntu@34.121.184.250 << 'EOF'
+        ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa ubuntu@34.121.184.250 << 'EOF'
           set -e
           cd /home/ubuntu
-          # If the folder already exists, skip cloning
           if [ ! -d "odoo16" ]; then
-            git clone git@github.com:Akhil-132/odoo16.git
+            GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=no" git clone git@github.com:Akhil-132/odoo16.git
           else
             echo "Repo already cloned."
           fi
