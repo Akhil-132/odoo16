@@ -40,10 +40,11 @@ jobs:
             # Check if code directory exists for update, else fresh setup
             if [ -d /opt/odoo/odoo16 ]; then
               echo "🚀 Updating existing Odoo development deployment..."
-              sudo chown -R odoo:odoo /opt/odoo/odoo16
+              sudo chown -R ubuntu:ubuntu /opt/odoo/odoo16
               cd /opt/odoo/odoo16
               git config --global --add safe.directory /opt/odoo/odoo16
               git pull origin master --force || true
+              sudo chown -R odoo:odoo /opt/odoo/odoo16
 
               if [ -f /etc/systemd/system/odoo16.service ]; then
                 sudo systemctl restart odoo16
