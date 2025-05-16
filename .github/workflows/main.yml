@@ -3,10 +3,11 @@ name: Test Odoo16 Installation on Multiple Linux OSes
 on:
   push:
     branches: [master]
-  
+ 
 jobs:
   test-odoo:
     strategy:
+      fail-fast: false  # Ensures all matrix jobs run, even if one fails
       matrix:
         os_image: [ubuntu:20.04, ubuntu:22.04, debian:bullseye, debian:bookworm, almalinux:9]
 
@@ -22,7 +23,7 @@ jobs:
           repository: Akhil-132/odoo16
           path: odoo16
 
-      - name: Print OS and Python version
+      - name: Show OS & Python info
         shell: bash
         run: |
           echo "== OS Info =="
@@ -40,27 +41,22 @@ jobs:
             libpq-dev libjpeg-dev libxml2-dev zlib1g-dev \
             libffi-dev libtiff-dev libopenjp2-7-dev \
             liblcms2-dev libwebp-dev libharfbuzz-dev libfribidi-dev \
-            libxcb1-dev wget git curl npm node-less
+            libxcb1-dev wget git curl npm node-less unzip
 
-      - name: Install system dependencies (YUM-based)
+      - name: Install system dependencies (YUM-based for AlmaLinux)
         if: contains(matrix.os_image, 'almalinux')
         run: |
           dnf install -y epel-release
+          dnf config-manager --set-enabled crb || true
           dnf install -y \
-            python3 python3-pip python3-virtualenv python3-devel \
-            gcc gcc-c++ redhat-rpm-config \
-            libxslt-devel libzip-devel openldap-devel \
-            libjpeg-devel libxml2-devel zlib-devel \
-            libffi-devel libtiff-devel openjpeg2-devel \
-            lcms2-devel libwebp-devel harfbuzz-devel fribidi-devel \
-            libxcb-devel wget git curl npm less nodejs
+            git gcc redhat-rpm-config \
+            libxslt-devel bzip2-devel openldap-devel \
+            libjpeg-devel freetype-devel curl unzip \
+            openssl-devel wget yum-utils make \
+            libffi-devel zlib-devel tar postgresql-devel \
+            python3 python3-pip python3-virtualenv python3-devel
 
-      - name: Install wkhtmltopdf
-        run: |
-          wget https://github.com/wkhtmltopdf/packaging/releases/download/0.12.6-1/wkhtmltox_0.12.6-1.focal_amd64.deb || true
-          apt install -y ./wkhtmltox_0.12.6-1.focal_amd64.deb || echo "Skipping wkhtmltopdf on non-DEB systems"
-
-      - name: Setup Python env and run Odoo
+      - name: Setup Python env and test Odoo
         shell: bash
         run: |
           cd odoo16
