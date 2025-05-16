@@ -42,6 +42,12 @@ jobs:
       - name: Setup Python environment and test Odoo
         shell: bash
         run: |
+          echo "== OS Version =="
+          lsb_release -a || cat /etc/os-release
+
+          echo "== Python Version =="
+          python3 --version
+
           cd odoo16
           python3 -m venv venv
           source venv/bin/activate
