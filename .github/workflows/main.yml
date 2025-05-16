@@ -47,4 +47,5 @@ jobs:
           source venv/bin/activate
           pip install --upgrade pip wheel setuptools
           pip install -r requirements.txt || echo "Some optional requirements failed"
+          chmod +x odoo-bin
           ./odoo-bin --version
