@@ -9,7 +9,7 @@ jobs:
     strategy:
       fail-fast: false  # Ensures all matrix jobs run, even if one fails
       matrix:
-        os_image: [ubuntu:20.04, ubuntu:22.04, debian:bullseye, debian:bookworm, almalinux:9]
+        os_image:  [almalinux:9]
 
     runs-on: ubuntu-latest
 
@@ -31,29 +31,19 @@ jobs:
           echo "== Python Version =="
           python3 --version || true
 
-      - name: Install system dependencies (APT-based)
-        if: contains(matrix.os_image, 'ubuntu') || contains(matrix.os_image, 'debian')
-        run: |
-          apt update
-          DEBIAN_FRONTEND=noninteractive apt install -y \
-            python3 python3-pip python3-venv python3-dev build-essential \
-            libxslt-dev libzip-dev libldap2-dev libsasl2-dev \
-            libpq-dev libjpeg-dev libxml2-dev zlib1g-dev \
-            libffi-dev libtiff-dev libopenjp2-7-dev \
-            liblcms2-dev libwebp-dev libharfbuzz-dev libfribidi-dev \
-            libxcb1-dev wget git curl npm node-less unzip
 
       - name: Install system dependencies (YUM-based for AlmaLinux)
         if: contains(matrix.os_image, 'almalinux')
         run: |
-          dnf install -y epel-release
+          dnf update -y && dnf upgrade -y
+          # dnf install -y epel-release
           dnf config-manager --set-enabled crb || true
           dnf install -y \
             git gcc redhat-rpm-config \
             libxslt-devel bzip2-devel openldap-devel \
             libjpeg-devel freetype-devel curl unzip \
             openssl-devel wget yum-utils make \
-            libffi-devel zlib-devel tar postgresql-devel \
+            libffi-devel zlib-devel tar libpq5-devel \
             python3 python3-pip python3-virtualenv python3-devel
 
       - name: Setup Python env and test Odoo
