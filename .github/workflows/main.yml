@@ -36,7 +36,7 @@ jobs:
       - name: Clone Odoo 16
         run: |
           git clone https://github.com/Akhil-132/odoo16.git
-          cd odoo
+          cd odoo16
           python3 -m venv venv
           source venv/bin/activate
           pip install --upgrade pip wheel setuptools
