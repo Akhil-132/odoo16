@@ -1,19 +1,19 @@
-name: Test Odoo16 Installation on Ubuntu Versions
+name: Test Odoo16 Installation on Multiple Linux OSes
 
 on:
   push:
     branches: [master]
-
+  
 jobs:
   test-odoo:
     strategy:
       matrix:
-        ubuntu_version: [20.04, 22.04, 24.04]
+        os_image: [ubuntu:20.04, ubuntu:22.04, debian:bullseye, debian:bookworm, almalinux:9]
 
     runs-on: ubuntu-latest
 
     container:
-      image: ubuntu:${{ matrix.ubuntu_version }}
+      image: ${{ matrix.os_image }}
 
     steps:
       - name: Checkout your repo
@@ -22,7 +22,16 @@ jobs:
           repository: Akhil-132/odoo16
           path: odoo16
 
-      - name: Install system dependencies
+      - name: Print OS and Python version
+        shell: bash
+        run: |
+          echo "== OS Info =="
+          cat /etc/os-release || true
+          echo "== Python Version =="
+          python3 --version || true
+
+      - name: Install system dependencies (APT-based)
+        if: contains(matrix.os_image, 'ubuntu') || contains(matrix.os_image, 'debian')
         run: |
           apt update
           DEBIAN_FRONTEND=noninteractive apt install -y \
@@ -31,23 +40,29 @@ jobs:
             libpq-dev libjpeg-dev libxml2-dev zlib1g-dev \
             libffi-dev libtiff-dev libopenjp2-7-dev \
             liblcms2-dev libwebp-dev libharfbuzz-dev libfribidi-dev \
-            libxcb1-dev libpq-dev wget git curl npm node-less
+            libxcb1-dev wget git curl npm node-less
+
+      - name: Install system dependencies (YUM-based)
+        if: contains(matrix.os_image, 'almalinux')
+        run: |
+          dnf install -y epel-release
+          dnf install -y \
+            python3 python3-pip python3-virtualenv python3-devel \
+            gcc gcc-c++ redhat-rpm-config \
+            libxslt-devel libzip-devel openldap-devel \
+            libjpeg-devel libxml2-devel zlib-devel \
+            libffi-devel libtiff-devel openjpeg2-devel \
+            lcms2-devel libwebp-devel harfbuzz-devel fribidi-devel \
+            libxcb-devel wget git curl npm less nodejs
 
       - name: Install wkhtmltopdf
         run: |
-          apt install -y xfonts-75dpi xfonts-base
-          wget https://github.com/wkhtmltopdf/packaging/releases/download/0.12.6-1/wkhtmltox_0.12.6-1.focal_amd64.deb
-          apt install -y ./wkhtmltox_0.12.6-1.focal_amd64.deb || true
+          wget https://github.com/wkhtmltopdf/packaging/releases/download/0.12.6-1/wkhtmltox_0.12.6-1.focal_amd64.deb || true
+          apt install -y ./wkhtmltox_0.12.6-1.focal_amd64.deb || echo "Skipping wkhtmltopdf on non-DEB systems"
 
-      - name: Setup Python environment and test Odoo
+      - name: Setup Python env and run Odoo
         shell: bash
         run: |
-          echo "== OS Version =="
-          lsb_release -a || cat /etc/os-release
-
-          echo "== Python Version =="
-          python3 --version
-
           cd odoo16
           python3 -m venv venv
           source venv/bin/activate
