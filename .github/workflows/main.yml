@@ -1,9 +1,9 @@
+
 name: Run Selenium Scripts on ubuntu-latest
 
 on:
   push:
-    branches:
-      - master
+    branches: [ master ]
 
 jobs:
   selenium-run:
@@ -13,21 +13,13 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install Chrome stable
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y wget unzip gnupg2
-          wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
-          sudo apt install -y ./google-chrome-stable_current_amd64.deb
-
-      - name: Install matching ChromeDriver
-        run: |
-          CHROME_VERSION=$(google-chrome --version | awk '{print $3}' | cut -d'.' -f1)
-          DRIVER_VERSION=$(wget -qO- "https://chromedriver.storage.googleapis.com/LATEST_RELEASE_$CHROME_VERSION")
-          wget "https://chromedriver.storage.googleapis.com/$DRIVER_VERSION/chromedriver_linux64.zip"
-          unzip chromedriver_linux64.zip
-          sudo mv chromedriver /usr/bin/chromedriver
-          sudo chmod +x /usr/bin/chromedriver
+      # Install Chrome for Testing (stable) reliably
+      - name: Set up Chrome (CfT) + matching ChromeDriver
+        uses: browser-actions/setup-chrome@v2
+        with:
+          chrome-version: stable
+          install-chromedriver: true
+          install-dependencies: true
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -42,11 +34,12 @@ jobs:
           pip install -r requirements.txt
 
       - name: Run Selenium scripts (headless)
+        env:
+          # Optional: make sure selenium finds chrome if your code expects 'chrome' or 'google-chrome'
+          CHROME_BIN: chrome
         run: |
           source venv/bin/activate
           python scripts/file1.py
           python scripts/file2.py
           python scripts/file3.py
           python scripts/file4.py
-          python scripts/file5.py
-          python scripts/file6.py
