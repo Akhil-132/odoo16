@@ -1,58 +1,52 @@
-name: Test Odoo16 Installation on Multiple Linux OSes
+name: Run Selenium Scripts on ubuntu-latest
 
 on:
   push:
-    branches: [master]
- 
-jobs:
-  test-odoo:
-    strategy:
-      fail-fast: false  # Ensures all matrix jobs run, even if one fails
-      matrix:
-        os_image:  [almalinux:9]
+    branches:
+      - master
 
+jobs:
+  selenium-run:
     runs-on: ubuntu-latest
 
-    container:
-      image: ${{ matrix.os_image }}
-
     steps:
-      - name: Checkout your repo
-        uses: actions/checkout@v3
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Chrome stable
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget unzip gnupg2
+          wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+          sudo apt install -y ./google-chrome-stable_current_amd64.deb
+
+      - name: Install matching ChromeDriver
+        run: |
+          CHROME_VERSION=$(google-chrome --version | awk '{print $3}' | cut -d'.' -f1)
+          DRIVER_VERSION=$(wget -qO- "https://chromedriver.storage.googleapis.com/LATEST_RELEASE_$CHROME_VERSION")
+          wget "https://chromedriver.storage.googleapis.com/$DRIVER_VERSION/chromedriver_linux64.zip"
+          unzip chromedriver_linux64.zip
+          sudo mv chromedriver /usr/bin/chromedriver
+          sudo chmod +x /usr/bin/chromedriver
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          repository: Akhil-132/odoo16
-          path: odoo16
+          python-version: "3.11"
 
-      - name: Show OS & Python info
-        shell: bash
+      - name: Install dependencies in venv
         run: |
-          echo "== OS Info =="
-          cat /etc/os-release || true
-          echo "== Python Version =="
-          python3 --version || true
-
-
-      - name: Install system dependencies (YUM-based for AlmaLinux)
-        if: contains(matrix.os_image, 'almalinux')
-        run: |
-          dnf update -y && dnf upgrade -y
-          # dnf install -y epel-release
-          dnf config-manager --set-enabled crb || true
-          dnf install -y \
-            git gcc redhat-rpm-config \
-            libxslt-devel bzip2-devel openldap-devel \
-            libjpeg-devel freetype-devel curl unzip \
-            openssl-devel wget yum-utils make \
-            libffi-devel zlib-devel tar libpq5-devel \
-            python3 python3-pip python3-virtualenv python3-devel
-
-      - name: Setup Python env and test Odoo
-        shell: bash
-        run: |
-          cd odoo16
-          python3 -m venv venv
+          python -m venv venv
           source venv/bin/activate
-          pip install --upgrade pip wheel setuptools
-          pip install -r requirements.txt || echo "Some optional requirements failed"
-          chmod +x odoo-bin
-          ./odoo-bin --version
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Selenium scripts (headless)
+        run: |
+          source venv/bin/activate
+          python scripts/file1.py
+          python scripts/file2.py
+          python scripts/file3.py
+          python scripts/file4.py
+          python scripts/file5.py
+          python scripts/file6.py
